@@ -1,0 +1,219 @@
+---
+title: "A Study of NBA dataset"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+author: "Jutraman"
+
+fontsize: 11pt
+fontfamily: times
+geometry: margin=1in
+
+output:
+  pdf_document: default
+  bookdown::pdf_document2:
+
+    toc: true
+    number_sections: true
+    keep_tex: true 
+    citation_package: natbib
+    fig_caption: true
+    
+    #toc_depth: 1
+
+    highlight: haddock 
+    df_print: kable
+    extra_dependencies:
+      caption: ["labelfont={bf}"]
+    #pdf_document:
+    #  extra_dependencies: ["flafter"]
+    #pdf_document2:
+    #  extra_dependencies: ["float"]
+
+#bibliography: [refs.bib]
+biblio-style: apalike
+link-citations: yes
+
+---
+
+<!-- set knitr options here -->
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r include=FALSE}
+nba_shots=read.csv("nbadata.csv")
+dim(nba_shots) 
+str(nba_shots) 
+```
+```{r include=FALSE}
+library(dplyr)
+library(base)
+library(stats)
+library(ggplot2)
+library(ggthemes)
+```
+
+
+```{r, echo = FALSE}
+noquote('Variables names:')
+print(names(nba_shots))
+```
+
+
+```{r include=FALSE}
+# Team
+home_game_num=summarise(group_by(unique(nba_shots[,1:4]),HOME_TEAM),home_game_num=n())
+away_game_num=summarise(group_by(unique(nba_shots[,1:4]),AWAY_TEAM),num=n())
+game_score=summarise(group_by(nba_shots,HOME_TEAM),
+                    score=0,
+                    win_games=0)
+last_game_id=0
+for (i in 1:128069) {
+  index_1=which(game_score$HOME_TEAM==nba_shots$HOME_TEAM[i])
+  index_2=which(game_score$HOME_TEAM==nba_shots$AWAY_TEAM[i])
+  if (nba_shots$LOCATION[i]=='H') {
+    x=game_score$score[index_1]+nba_shots$PTS[i]
+    game_score$score[index_1]=x
+  }else{
+    x=game_score$score[index_2]+nba_shots$PTS[i]
+    game_score$score[index_2]=x
+  }
+  if(nba_shots$GAME_ID[i]!=last_game_id){
+    if(nba_shots$W[i]=='W'){
+      if(nba_shots$LOCATION[i]=='H'){
+        game_score$win_games[index_1]=game_score$win_games[index_1]+1
+      }else{
+        game_score$win_games[index_2]=game_score$win_games[index_2]+1
+      }
+    }else{
+      if(nba_shots$LOCATION[i]=='A'){
+        game_score$win_games[index_1]=game_score$win_games[index_1]+1
+      }else{
+        game_score$win_games[index_2]=game_score$win_games[index_2]+1
+      }
+    }
+      
+  }
+  last_game_id=nba_shots$GAME_ID[i]
+}
+team_rank=mutate(home_game_num,
+       away_game_num=away_game_num$num,
+       total_num=away_game_num+home_game_num,
+       total_score=game_score$score,
+       avg_score=total_score/total_num,
+       win_games=game_score$win_games)
+head(arrange(team_rank,desc(avg_score)))
+head(arrange(team_rank,desc(win_games)))
+```
+
+
+
+```{r}
+(home_away<-nba_shots %>% group_by(LOCATION) %>% 
+     summarise(PERCENTAGE=sum(FGM)/length(FGM)*100))
+```
+
+
+```{r}
+wins<-nba_shots %>% group_by(GAME_ID,LOCATION) %>% filter(W=='W',FGM
+  ==1)
+ggplot(data=wins,aes(LOCATION,fill=factor(W)))+geom_bar()
+```
+
+
+```{r}
+# best_player_offense
+player_rank=summarise(group_by(nba_shots,PLAYER_NAME),
+                      score=sum(PTS),
+                      attempts=length(FGM),
+                      games=sum(SHOT_NUMBER==1),
+                      avg_score=score/games,
+                      avg_shot=attempts/games,
+                      FG=sum(FGM)/attempts,
+                      eFG=(sum(FGM)+0.5*sum(PTS==3))/length(FGM))
+head(arrange(filter(player_rank,attempts>500,games>40),desc(avg_shot)))
+head(arrange(filter(player_rank,attempts>500,avg_shot>15,games>40),desc(eFG)))
+head(arrange(filter(player_rank,attempts>500,games>40),desc(avg_score)))  
+head(arrange(filter(player_rank,attempts>500,games>40),desc(score)))
+
+
+print(quantile(player_rank$avg_shot,0.9))
+print(quantile(player_rank$avg_score,0.9))
+print(quantile(player_rank$eFG,0.9))
+```
+
+```{r}
+data.BEST<-filter(nba_shots,
+               PLAYER_NAME=='Lebron James'|
+               PLAYER_NAME=='Klay Thompson'|
+               PLAYER_NAME=='Stephen Curry')
+
+ggplot(data=data.BEST,aes(SHOT_DIST,fill=factor(FGM)))+
+  geom_histogram()+
+  facet_grid(.~PLAYER_NAME)+
+  theme_few()
+```
+
+
+```{r}
+# best_player_defence
+athlete_rank=summarise(group_by(nba_shots,CLOSEST_DEFENDER),
+                      attempts=length(FGM),
+                      dp=sum(FGM==0)/attempts,
+                      def_dist=mean(CLOSE_DEF_DIST))
+head(arrange(athlete_rank,desc(attempts)))
+head(arrange(filter(athlete_rank,attempts>600),desc(dp)))
+head(arrange(filter(athlete_rank,attempts>600),def_dist))
+```
+
+# Correlation analysis
+
+```{r}
+players_rank=summarise(group_by(nba_shots,PLAYER_NAME),
+                      score=sum(PTS),
+                      attempts=length(FGM),
+                      games=sum(SHOT_NUMBER==1),
+                      avg_score=score/games,
+                      avg_shot=attempts/games,
+                      TS_2=sum(PTS==2)/sum(PTS_TYPE==2),
+                      TS_3=sum(PTS==3)/sum(PTS_TYPE==3),
+                      eFG=(sum(FGM)+0.5*sum(PTS==3))/length(FGM))
+#head(arrange(players_rank,desc(attempts)))
+```
+
+## compare shot and score 
+ 
+
+```{r, echo=FALSE}
+PvalFt <- (var.test(players_rank$avg_shot, 
+                    players_rank$avg_score,
+                    alternative = "two.sided", conf.level=0.95))$p.value
+PvalTt <- (t.test(players_rank$avg_shot, 
+                    players_rank$avg_score,
+                  alternative = "two.sided", conf.level=0.95))$p.value
+
+noquote( sprintf('F-test (compararison of variances); p-value=%.4f', PvalFt) )
+noquote( sprintf('t-test (compararison of means); p-value=%.4f', PvalTt) )
+```
+
+
+```{r, echo=FALSE}
+noquote('Difference between TS_2 and TS_3')
+Wil_Pv_Jt <- wilcox.test(players_rank$TS_2, 
+                    players_rank$TS_3, 
+             alternative='greater', paired=TRUE, 
+             exact=FALSE, correct=TRUE)
+noquote(sprintf('wilcox.test p-value=%.4f', Wil_Pv_Jt$p.value))
+```
+
+
+```{r, echo=FALSE}
+noquote('Difference between the scores and attempts')
+Wil_100_Lj <- wilcox.test(players_rank$score, 
+                    players_rank$attempts,  
+              alternative='two.sided', paired=TRUE, 
+              exact=FALSE, correct=TRUE)
+noquote(sprintf('wilcox.test p-value=%.4f', Wil_100_Lj$p.value))
+```
+
